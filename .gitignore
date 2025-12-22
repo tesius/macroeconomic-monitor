@@ -1,0 +1,13 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Streamlit secrets file (절대 올리지 말 것)
+.streamlit/secrets.toml
+
+# Virtual environments
+.venv

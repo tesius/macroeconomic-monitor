@@ -1,0 +1,211 @@
+import streamlit as st
+import pandas as pd
+import yfinance as yf
+import plotly.graph_objects as go
+import datetime
+
+# -----------------------------------------------------------------------------
+# 1. 페이지 기본 설정 & 스타일
+# -----------------------------------------------------------------------------
+st.set_page_config(
+    page_title="Macroeconomic Radar",
+    page_icon="📈",
+    layout="wide"
+)
+
+# 커스텀 CSS (카드 디자인)
+st.markdown("""
+<style>
+    .metric-card {
+        background-color: #f9f9f9;
+        padding: 15px;
+        border-radius: 10px;
+        box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
+    }
+    /* st.code 블록 자동 줄바꿈(Wrap) 적용 */
+    div[data-testid="stCodeBlock"] pre {
+        white-space: pre-wrap !important;
+        word-break: break-word !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+st.title("📟 Macroeconomic Monitoring")
+st.divider()
+
+# -----------------------------------------------------------------------------
+# 2. 데이터 수집 및 차트 생성 함수들
+# -----------------------------------------------------------------------------
+
+@st.cache_data(ttl=3600) 
+def get_daily_data(ticker, period="6mo"):
+    try:
+        df = yf.download(ticker, period=period, progress=False)
+        if df.empty:
+            return None, None, None
+        
+        last_price = df['Close'].iloc[-1].item()
+        prev_price = df['Close'].iloc[-2].item()
+        delta = last_price - prev_price
+        
+        return last_price, delta, df['Close']
+    except Exception as e:
+        # 에러 발생 시 로그만 남기고 None 반환
+        return None, None, None
+
+@st.cache_data(ttl=86400) 
+def get_macro_data(series_id):
+    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+    try:
+        df = pd.read_csv(url, index_col=0, parse_dates=True)
+        df.columns = [series_id] 
+        df = df[df.index > '2020-01-01']
+        return df
+    except Exception as e:
+        return None
+
+def create_sparkline_chart(data, color="red"):
+    fig = go.Figure()
+    y_vals = data.to_numpy().flatten()
+    y_min = float(y_vals.min())
+    y_max = float(y_vals.max())
+    y_range = y_max - y_min
+    buffer = y_range * 0.1 if y_range != 0 else 0.01 
+    
+    fig.add_trace(go.Scatter(
+        x=data.index, y=y_vals, mode='lines', 
+        line=dict(color=color, width=2), hoverinfo='x+y'
+    ))
+    
+    fig.update_layout(
+        height=120, margin=dict(l=0, r=0, t=15, b=20),
+        xaxis=dict(visible=True, showgrid=False, tickformat="%m/%d", nticks=5),
+        yaxis=dict(visible=False, range=[y_min - buffer, y_max + buffer]),
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'
+    )
+    return fig
+
+def create_macro_chart(df, col_name, title, color, target_line=None):
+    fig = go.Figure()
+    y_vals = df[col_name].to_numpy().flatten()
+    y_min = float(y_vals.min())
+    y_max = float(y_vals.max())
+    
+    if target_line is not None:
+        y_min = min(y_min, target_line)
+        y_max = max(y_max, target_line)
+        
+    y_range = y_max - y_min
+    buffer = y_range * 0.1 if y_range != 0 else 0.1
+
+    fig.add_trace(go.Scatter(
+        x=df.index, y=y_vals, mode='lines', name=title,
+        line=dict(color=color, width=3)
+    ))
+    
+    if target_line is not None:
+        fig.add_hline(y=target_line, line_dash="dash", line_color="green", annotation_text=f"Target ({target_line}%)")
+
+    fig.update_layout(
+        title=title, height=350, margin=dict(l=20, r=20, t=60, b=20),
+        yaxis=dict(range=[y_min - buffer, y_max + buffer], gridcolor='rgba(128,128,128,0.2)'),
+        xaxis=dict(gridcolor='rgba(128,128,128,0.2)'),
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'   
+    )
+    return fig
+
+# -----------------------------------------------------------------------------
+# 3. UI 구성: Section 1 - Market Pulse (Daily)
+# -----------------------------------------------------------------------------
+st.subheader("실시간 시장 동향")
+
+metrics = {
+    "🇺🇸 미국 10년물 금리": {"ticker": "^TNX", "suffix": "%"},
+    "🇰🇷 원/달러 환율": {"ticker": "KRW=X", "suffix": "원"},
+    "🇺🇸 S&P 500 지수": {"ticker": "^GSPC", "suffix": ""},
+    "😨 VIX (공포지수)": {"ticker": "^VIX", "suffix": ""},
+}
+
+cols = st.columns(len(metrics))
+data_summary = ""
+
+for col, (name, info) in zip(cols, metrics.items()):
+    with col:
+        current, delta, history = get_daily_data(info['ticker'])
+        
+        if current is not None:
+            st.metric(
+                label=name,
+                value=f"{current:,.2f}{info['suffix']}",
+                delta=f"{delta:,.2f}"
+            )
+            
+            line_color = '#ff4b4b' if delta > 0 else '#4b88ff'
+            fig = create_sparkline_chart(history.tail(90), color=line_color)
+            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+            
+            # 프롬프트 생성을 위한 텍스트 누적
+            data_summary += f"- {name}: {current:,.2f}{info['suffix']} (전일대비: {delta:+.2f})\n"
+        else:
+            st.warning("Data load failed")
+
+# -----------------------------------------------------------------------------
+# 4. UI 구성: Section 2 - Macro Health (Monthly)
+# -----------------------------------------------------------------------------
+st.markdown("---")
+st.subheader("거시경제 흐름")
+
+tab1, tab2 = st.tabs(["📉 인플레이션 추이", "🏭 고용지표(실업률)"])
+
+with tab1:
+    cpi_data = get_macro_data("CPIAUCSL")
+    if cpi_data is not None:
+        cpi_yoy = cpi_data.pct_change(periods=12) * 100
+        fig = create_macro_chart(cpi_yoy, 'CPIAUCSL', "미국 소비자 물가 지수 (YoY)", '#ef553b', target_line=2.0)
+        st.plotly_chart(fig, use_container_width=True)
+        
+        last_cpi = cpi_yoy['CPIAUCSL'].iloc[-1]
+        data_summary += f"- 미국 소비자 물가 지수(CPI, YoY): {last_cpi:.2f}%\n"
+
+with tab2:
+    unrate_data = get_macro_data("UNRATE")
+    if unrate_data is not None:
+        fig = create_macro_chart(unrate_data, 'UNRATE', "미국 실업률 (%)", '#ffa15a')
+        st.plotly_chart(fig, use_container_width=True)
+        
+        last_unrate = unrate_data['UNRATE'].iloc[-1]
+        data_summary += f"- 미국 실업률: {last_unrate:.2f}%\n"
+
+# -----------------------------------------------------------------------------
+# 5. UI 구성: Section 3 - Gemini Prompt Generator
+# -----------------------------------------------------------------------------
+st.markdown("---")
+st.subheader("📝 Gemini 질문 생성기")
+st.info("아래 박스 우측 상단의 '복사' 버튼을 눌러 Gemini에게 붙여넣으세요!")
+
+# 오늘 날짜
+today = datetime.datetime.now().strftime("%Y년 %m월 %d일")
+
+# 완성된 프롬프트 텍스트
+final_prompt = f"""
+[역할]
+당신은 월가에서 20년 경력을 가진 거시경제 애널리스트이자, 나의 친절한 투자 멘토입니다.
+
+[상황]
+오늘은 {today}입니다. 수집된 최신 시장 데이터는 아래와 같습니다.
+
+[데이터 리포트]
+{data_summary}
+
+[요청사항]
+1. 시장 분위기 3줄 요약: 현재 시장이 탐욕 구간인지, 공포 구간인지, 관망세인지 명확히 진단해줘.
+2. 핵심 지표 해석: 국채 금리와 환율의 움직임이 현재 주식 시장(S&P 500)에 어떤 압력을 주고 있는지 분석해줘.
+3. 리스크 점검: 물가와 실업률 추세를 볼 때 '연준(Fed)'의 정책 방향이 어떻게 될지 예측해줘.
+4. 투자 조언: 주식 시장 전체에 대한 투자 조언을 해줘. 주식,채권, 원자재 등등 지금 시점에서 
+            개인 투자자는 '현금 비중'을 늘려야 할지 아니면 '매수'를 하는게 좋을지.
+
+전문 용어를 쓰되 이해하기 쉽게 존대말로 설명해줘.
+"""
+
+# 코드 블록으로 표시하여 원클릭 복사 지원
+st.code(final_prompt, language="text")
