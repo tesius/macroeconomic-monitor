@@ -37,8 +37,26 @@ st.divider()
 # 2. 데이터 수집 및 차트 생성 함수들
 # -----------------------------------------------------------------------------
 
-@st.cache_data(ttl=3600) 
+# (1) 데일리 데이터 함수 (수정됨: ^TNX 차단 시 FRED로 우회)
+@st.cache_data(ttl=3600)
 def get_daily_data(ticker, period="6mo"):
+    # 🌟 [수정 포인트] 미국 10년물 금리(^TNX)는 클라우드에서 야후 차단이 심하므로 FRED 공식 데이터(DGS10) 사용
+    if ticker == "^TNX":
+        # FRED에서 DGS10(일일 10년물 금리) 가져오기
+        df = get_macro_data("DGS10")
+        if df is None or df.empty:
+            return None, None, None
+        
+        # 데이터 정리 (FRED는 가끔 '.' 같은 문자가 섞임 -> 숫자 변환)
+        series = df['DGS10'].dropna().astype(float)
+        
+        last_price = series.iloc[-1]
+        prev_price = series.iloc[-2]
+        delta = last_price - prev_price
+        
+        return last_price, delta, series
+
+    # 나머지 일반 주식/환율 등은 기존대로 야후 파이낸스 사용
     try:
         df = yf.download(ticker, period=period, progress=False)
         if df.empty:
@@ -50,15 +68,18 @@ def get_daily_data(ticker, period="6mo"):
         
         return last_price, delta, df['Close']
     except Exception as e:
-        # 에러 발생 시 로그만 남기고 None 반환
         return None, None, None
 
+# (2) 월간 매크로 데이터 함수 (수정됨: 결측치 처리 강화)
 @st.cache_data(ttl=86400) 
 def get_macro_data(series_id):
     url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
     try:
-        df = pd.read_csv(url, index_col=0, parse_dates=True)
+        # 🌟 [수정 포인트] na_values='.' 추가 (데이터에 점(.)으로 된 결측치가 있을 경우 NaN으로 처리)
+        df = pd.read_csv(url, index_col=0, parse_dates=True, na_values='.')
         df.columns = [series_id] 
+        # 결측치 제거 (dropna)
+        df = df.dropna()
         df = df[df.index > '2020-01-01']
         return df
     except Exception as e:
@@ -180,8 +201,8 @@ with tab2:
 # 5. UI 구성: Section 3 - Gemini Prompt Generator
 # -----------------------------------------------------------------------------
 st.markdown("---")
-st.subheader("📝 Gemini 질문 생성기")
-st.info("아래 박스 우측 상단의 '복사' 버튼을 눌러 Gemini에게 붙여넣으세요!")
+st.subheader("📝 프롬프트 가이드")
+st.info("아래 박스 우측 상단의 '복사' 버튼을 눌러 AI 서비스에 붙여 넣으세요!")
 
 # 오늘 날짜
 today = datetime.datetime.now().strftime("%Y년 %m월 %d일")
