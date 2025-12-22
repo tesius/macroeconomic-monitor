@@ -70,17 +70,16 @@ def get_daily_data(ticker, period="6mo"):
     except Exception as e:
         return None, None, None
 
-# (2) 월간 매크로 데이터 함수 (수정됨: 결측치 처리 강화)
+# (2) 월간 매크로 데이터 (기간 확대)
 @st.cache_data(ttl=86400) 
 def get_macro_data(series_id):
     url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
     try:
-        # 🌟 [수정 포인트] na_values='.' 추가 (데이터에 점(.)으로 된 결측치가 있을 경우 NaN으로 처리)
         df = pd.read_csv(url, index_col=0, parse_dates=True, na_values='.')
         df.columns = [series_id] 
-        # 결측치 제거 (dropna)
         df = df.dropna()
-        df = df[df.index > '2020-01-01']
+        # ⭐ 수정됨: 2020년 -> 2000년으로 변경하여 장기 데이터 확보
+        df = df[df.index > '2000-01-01']
         return df
     except Exception as e:
         return None
@@ -106,16 +105,17 @@ def create_sparkline_chart(data, color="red"):
     )
     return fig
 
+# (4) 메인 매크로 차트 생성 함수 (버튼 추가)
 def create_macro_chart(df, col_name, title, color, target_line=None):
     fig = go.Figure()
     y_vals = df[col_name].to_numpy().flatten()
+    
+    # ... (기존 y_min, y_max 계산 로직 동일) ...
     y_min = float(y_vals.min())
     y_max = float(y_vals.max())
-    
     if target_line is not None:
         y_min = min(y_min, target_line)
         y_max = max(y_max, target_line)
-        
     y_range = y_max - y_min
     buffer = y_range * 0.1 if y_range != 0 else 0.1
 
@@ -127,10 +127,34 @@ def create_macro_chart(df, col_name, title, color, target_line=None):
     if target_line is not None:
         fig.add_hline(y=target_line, line_dash="dash", line_color="green", annotation_text=f"Target ({target_line}%)")
 
+    # 오늘 날짜 기준 5년 전 계산 (기본 뷰 설정을 위해)
+    five_years_ago = datetime.datetime.now() - datetime.timedelta(days=365*5)
+
     fig.update_layout(
         title=title, height=350, margin=dict(l=20, r=20, t=60, b=20),
         yaxis=dict(range=[y_min - buffer, y_max + buffer], gridcolor='rgba(128,128,128,0.2)'),
-        xaxis=dict(gridcolor='rgba(128,128,128,0.2)'),
+        
+        # ⭐ [핵심 추가] X축에 기간 선택 버튼 및 초기 범위 설정
+        xaxis=dict(
+            gridcolor='rgba(128,128,128,0.2)',
+            
+            # 1. 기간 선택 버튼 (Range Selector)
+            rangeselector=dict(
+                buttons=list([
+                    dict(count=1, label="1년", step="year", stepmode="backward"),
+                    dict(count=5, label="5년", step="year", stepmode="backward"),
+                    dict(count=10, label="10년", step="year", stepmode="backward"),
+                    dict(step="all", label="전체")
+                ]),
+                bgcolor="#f9f9f9", # 버튼 배경색
+                activecolor="#e5e5e5", # 선택된 버튼 색
+                font=dict(color="black")
+            ),
+            
+            # 2. 초기 화면은 최근 5년만 보여주기 (너무 길면 안 보이니까)
+            range=[five_years_ago, datetime.datetime.now()]
+        ),
+        
         paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'   
     )
     return fig
