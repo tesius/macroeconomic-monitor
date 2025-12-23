@@ -174,23 +174,36 @@ metrics = {
 cols = st.columns(len(metrics))
 data_summary = ""
 
+# Section 1 루프 전체 교체
 for col, (name, info) in zip(cols, metrics.items()):
     with col:
         current, delta, history = get_daily_data(info['ticker'])
         
         if current is not None:
+            # 1. Delta 텍스트 만들기
+            delta_text = f"{delta:,.2f}"
+            
+            # 🌟 [핵심] VIX인 경우, Delta 텍스트 뒤에 정보를 합침
+            if name == "😨 VIX (공포지수)":
+                daily_vol = current / 16
+                delta_text = f"VIX/16 {delta:,.2f} (±{daily_vol:.2f}%)"
+                # 프롬프트 요약용
+                data_summary += f"- {name}: {current:,.2f} (Change: {delta:.2f}) -> [예상변동: ±{daily_vol:.2f}%]\n"
+            else:
+                data_summary += f"- {name}: {current:,.2f}{info['suffix']} (전일대비: {delta:+.2f})\n"
+
+            # 2. Metric 표시 (합쳐진 delta_text 사용)
             st.metric(
                 label=name,
                 value=f"{current:,.2f}{info['suffix']}",
-                delta=f"{delta:,.2f}"
+                delta=delta_text
             )
             
+            # 3. 차트 표시
             line_color = '#ff4b4b' if delta > 0 else '#4b88ff'
             fig = create_sparkline_chart(history.tail(90), color=line_color)
             st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
             
-            # 프롬프트 생성을 위한 텍스트 누적
-            data_summary += f"- {name}: {current:,.2f}{info['suffix']} (전일대비: {delta:+.2f})\n"
         else:
             st.warning("Data load failed")
 
