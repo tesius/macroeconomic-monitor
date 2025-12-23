@@ -16,21 +16,46 @@ st.set_page_config(
 # 커스텀 CSS (카드 디자인)
 st.markdown("""
 <style>
+    /* 카드 디자인 */
     .metric-card {
         background-color: #f9f9f9;
         padding: 15px;
         border-radius: 10px;
         box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
     }
-    /* st.code 블록 자동 줄바꿈(Wrap) 적용 */
+    
+    /* 코드 블록 줄바꿈 */
     div[data-testid="stCodeBlock"] pre {
         white-space: pre-wrap !important;
         word-break: break-word !important;
     }
+
+    /* 📱 모바일 최적화: CSS Grid를 사용한 강력한 2열 강제 */
+    @media (max-width: 640px) {
+        /* 컬럼들을 감싸는 컨테이너를 Grid 모드로 변경 */
+        div[data-testid="stHorizontalBlock"] {
+            display: grid !important;
+            grid-template-columns: 1fr 1fr !important; /* 1:1 비율로 2개 강제 */
+            gap: 10px !important;
+            flex-direction: row !important; /* 기존 세로 정렬 무시 */
+        }
+
+        /* 개별 컬럼의 너비 강제 초기화 */
+        div[data-testid="column"] {
+            width: auto !important;
+            flex: 1 1 auto !important;
+            min-width: 0 !important; /* 내용이 넘쳐도 깨지지 않게 방지 */
+        }
+        
+        /* 텍스트 크기 등 미세 조정 (선택사항) */
+        div[data-testid="metric-container"] label {
+            font-size: 12px !important; /* 모바일에서 글씨 너무 크면 줄임 */
+        }
+    }
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📟 Macroeconomic Monitoring")
+st.title("📟 경제 모니터링")
 st.divider()
 
 # -----------------------------------------------------------------------------
