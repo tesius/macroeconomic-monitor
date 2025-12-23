@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots 
 import datetime
 
 # -----------------------------------------------------------------------------
@@ -130,6 +131,27 @@ def create_sparkline_chart(data, color="red"):
     )
     return fig
 
+# (3) 금/은 비율 및 주가 지수 데이터 가져오기 (새로 추가)
+@st.cache_data(ttl=3600)
+def get_ratio_data(period="5y"):
+    try:
+        # 금(GC=F), 은(SI=F), S&P500(^GSPC) 데이터 다운로드
+        tickers = ["GC=F", "SI=F", "^GSPC"]
+        df = yf.download(tickers, period=period, progress=False, auto_adjust=True)
+        
+        # 'Close' 컬럼만 선택 (멀티인덱스 처리)
+        df = df['Close']
+        
+        # 결측치 제거
+        df = df.dropna()
+        
+        # 금/은 비율 계산
+        df['Gold_Silver_Ratio'] = df['GC=F'] / df['SI=F']
+        
+        return df
+    except Exception as e:
+        return None
+
 # (4) 메인 매크로 차트 생성 함수 (버튼 추가)
 def create_macro_chart(df, col_name, title, color, target_line=None):
     fig = go.Figure()
@@ -182,6 +204,93 @@ def create_macro_chart(df, col_name, title, color, target_line=None):
         
         paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)'   
     )
+    return fig
+
+# (5) 이중 축 차트 생성 함수 (범례 위치 수정 & 가독성 개선)
+def create_dual_axis_chart(df):
+    # 이중 축(Dual Axis) 설정
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    # 1. S&P 500 (왼쪽 축) - 차분한 스틸 블루 (Steel Blue)
+    fig.add_trace(
+        go.Scatter(
+            x=df.index, y=df['^GSPC'], name="S&P 500",
+            mode='lines', 
+            line=dict(color='#4682B4', width=1.5),
+            fill='tozeroy', 
+            fillcolor='rgba(70, 130, 180, 0.1)' 
+        ),
+        secondary_y=False,
+    )
+
+    # 2. 금/은 비율 (오른쪽 축) - 밝은 골드 오렌지 (Golden Orange)
+    fig.add_trace(
+        go.Scatter(
+            x=df.index, y=df['Gold_Silver_Ratio'], name="금/은 비율 (Risk)",
+            mode='lines', 
+            line=dict(color='#FFB300', width=1.5, dash='dot') 
+        ),
+        secondary_y=True,
+    )
+
+    # 레이아웃 설정 (다크모드 최적화)
+    fig.update_layout(
+        # 제목 설정
+        title={
+            'text': "S&P 500 vs 금/은 비율 (Risk Radar)",
+            'y':0.95, 'x':0.5, # 제목은 중앙 상단 유지
+            'xanchor': 'center', 'yanchor': 'top',
+            'font': dict(size=18, color='white') # 제목 폰트 크기 키움
+        },
+        height=450,
+        margin=dict(l=20, r=20, t=60, b=20),
+        
+        # 🌟 [수정 포인트] 범례(Legend) 위치를 왼쪽 상단으로 이동하여 제목과 분리
+        legend=dict(
+            orientation="h", # 가로 배치
+            yanchor="top", y=0.98, # 그래프 상단 안쪽에 배치
+            xanchor="left", x=0.01, # 왼쪽 벽에 붙임
+            bgcolor="rgba(0,0,0,0)", # 배경 투명
+            font=dict(size=12)
+        ),
+        
+        paper_bgcolor='rgba(0,0,0,0)', 
+        plot_bgcolor='rgba(0,0,0,0)',
+        hovermode="x unified"
+    )
+    
+    # Y축 설정
+    fig.update_yaxes(
+        title_text="S&P 500 지수", 
+        secondary_y=False, showgrid=True, 
+        gridcolor='rgba(255,255,255,0.07)',
+        tickfont=dict(color='#4682B4')
+    )
+    fig.update_yaxes(
+        title_text="금/은 비율", 
+        secondary_y=True, showgrid=False,
+        tickfont=dict(color='#FFB300')
+    )
+    
+    # X축 설정
+    now = datetime.datetime.now()
+    five_years_ago = now - datetime.timedelta(days=365*5)
+    
+    fig.update_xaxes(
+        range=[five_years_ago, now],
+        gridcolor='rgba(255,255,255,0.07)',
+        rangeselector=dict(
+            buttons=list([
+                dict(count=1, label="1Y", step="year", stepmode="backward"),
+                dict(count=5, label="5Y", step="year", stepmode="backward"),
+                dict(step="all", label="All")
+            ]),
+            bgcolor="#333333",
+            activecolor="#4682B4",
+            font=dict(color="white")
+        )
+    )
+
     return fig
 
 # -----------------------------------------------------------------------------
@@ -297,6 +406,29 @@ if unrate_data is not None:
     data_summary += f"- 미국 실업률: {last_unrate:.2f}%\n"
 else:
     st.warning("실업률 데이터 로드 실패")
+
+st.divider()
+
+# 3. 금/은 비율 차트 (Risk Radar)
+st.markdown("#### ⚖️ 금/은 비율과 주가 (위기 감지)")
+st.caption("금/은 비율(점선)이 급등하는데 주가가 오르면 '거품' 혹은 '조정 임박' 신호일 수 있습니다.")
+
+ratio_data = get_ratio_data()
+
+if ratio_data is not None:
+    fig_ratio = create_dual_axis_chart(ratio_data)
+    st.plotly_chart(fig_ratio, use_container_width=True)
+    
+    # 최신 데이터 요약
+    last_ratio = ratio_data['Gold_Silver_Ratio'].iloc[-1]
+    prev_ratio = ratio_data['Gold_Silver_Ratio'].iloc[-2]
+    ratio_delta = last_ratio - prev_ratio
+    
+    data_summary += f"- 금/은 비율(Gold/Silver Ratio): {last_ratio:.2f} (전일대비: {ratio_delta:+.2f})\n"
+    data_summary += "  (참고: 금/은 비율이 80을 넘으면 경기 침체 우려, 급등 시 주식 시장 조정 가능성 높음)\n"
+else:
+    st.warning("금/은 비율 데이터 로드 실패")
+
 
 # -----------------------------------------------------------------------------
 # 5. UI 구성: Section 3 - Gemini Prompt Generator
