@@ -189,44 +189,51 @@ def create_macro_chart(df, col_name, title, color, target_line=None):
 # -----------------------------------------------------------------------------
 st.subheader("실시간 시장 동향")
 
-# 8개 지표 정의 (순서대로 배치됩니다)
+# 8개 지표 정의
 metrics = {
     # [1열: 핵심 지표]
     "🇺🇸 미국 10년물 금리": {"ticker": "^TNX", "suffix": "%"},
     "🇰🇷 원/달러 환율": {"ticker": "KRW=X", "suffix": "원"},
     "😨 VIX (공포지수)": {"ticker": "^VIX", "suffix": ""},
-    "🇺🇸 나스닥 100": {"ticker": "^IXIC", "suffix": ""}, # 기술주 중심
+    "🇺🇸 나스닥 100": {"ticker": "^IXIC", "suffix": ""},
     
     # [2열: 글로벌 & 리스크]
     "🇺🇸 S&P 500": {"ticker": "^GSPC", "suffix": ""},    
     "🇯🇵 닛케이 225": {"ticker": "^N225", "suffix": ""},
-    "🌏 신흥국 ETF (EEM)": {"ticker": "EEM", "suffix": ""}, # 신흥국 증시 대리 지표
+    "🌏 신흥국 ETF (EEM)": {"ticker": "EEM", "suffix": ""},
     "🇰🇷 코스피 지수": {"ticker": "^KS11", "suffix": ""},    
 }
 
-# 딕셔너리를 리스트로 변환
 metrics_list = list(metrics.items())
 data_summary = ""
 
-# 4개씩 끊어서 두 줄(Row)로 표시하는 로직
+# 4개씩 끊어서 두 줄(Row)로 표시
 for i in range(0, len(metrics_list), 4):
     row_metrics = metrics_list[i:i+4]
-    cols = st.columns(4) # 한 줄에 4개 컬럼 생성
+    cols = st.columns(4)
     
     for col, (name, info) in zip(cols, row_metrics):
         with col:
             current, delta, history = get_daily_data(info['ticker'])
             
             if current is not None:
-                # 1. Delta 텍스트 만들기 (VIX일 경우 예상 변동폭 추가)
-                delta_text = f"{delta:,.2f}"
+                # 🌟 [추가됨] 등락률(%) 계산 로직
+                prev_price = current - delta
+                pct_change = 0
+                if prev_price != 0:
+                    pct_change = (delta / prev_price) * 100
+                
+                # 1. Delta 텍스트 만들기 (등락폭 + 퍼센트)
+                # 기본 포맷: "변동값 (퍼센트%)" -> 예: +5.20 (+1.5%)
+                delta_text = f"{delta:,.2f} ({pct_change:+.2f}%)"
                 
                 if name == "😨 VIX (공포지수)":
                     daily_vol = current / 16
-                    delta_text = f"{delta:,.2f} (VIX/16 ±{daily_vol:.2f}%)"
-                    data_summary += f"- {name}: {current:,.2f} -> [예상변동: ±{daily_vol:.2f}%]\n"
+                    # VIX는 내용이 기니까 '예상변동'을 조금 짧게 줄여서 표시 (공간 확보)
+                    delta_text = f"{delta:,.2f} (예상변동률 ±{daily_vol:.2f}%)"
+                    data_summary += f"- {name}: {current:,.2f} (등락: {pct_change:+.2f}%) -> [오늘예상변동: ±{daily_vol:.2f}%]\n"
                 else:
-                    data_summary += f"- {name}: {current:,.2f}{info['suffix']} (전일대비: {delta:+.2f})\n"
+                    data_summary += f"- {name}: {current:,.2f}{info['suffix']} (전일대비: {delta:+.2f} / {pct_change:+.2f}%)\n"
 
                 # 2. 메트릭 표시
                 st.metric(
@@ -237,44 +244,59 @@ for i in range(0, len(metrics_list), 4):
                 
                 # 3. 차트 표시
                 line_color = '#ff4b4b' if delta > 0 else '#4b88ff'
-                # VIX나 환율은 오르면 파란색(부정)으로 보고 싶다면 반대로 설정 가능하지만 통일성을 위해 유지
-                
                 fig = create_sparkline_chart(history.tail(90), color=line_color)
-                st.plotly_chart(fig, width='content', config={'displayModeBar': False})
+                # width='content'는 경고가 뜰 수 있으니 use_container_width=True 권장 (경고 무시 코드 넣으셨다면 OK)
+                st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
                 
             else:
                 st.warning(f"{name} Load Fail")
     
-    # 줄바꿈 간격 (옵션)
+    # 줄바꿈 간격
     if i == 0 :
-        st.markdown("---") 
+        st.markdown("---")
 
 # -----------------------------------------------------------------------------
 # 4. UI 구성: Section 2 - Macro Health (Monthly)
 # -----------------------------------------------------------------------------
 st.markdown("---")
 st.subheader("거시경제 흐름")
+st.caption("지난 25년간의 장기 추세를 통해 현재 경제 사이클의 위치를 파악합니다.")
 
-tab1, tab2 = st.tabs(["📉 인플레이션 추이", "🏭 고용지표(실업률)"])
+# 1. 인플레이션 (CPI) 차트
+st.markdown("#### 📉 인플레이션 추이 (CPI YoY)")
+cpi_data = get_macro_data("CPIAUCSL")
 
-with tab1:
-    cpi_data = get_macro_data("CPIAUCSL")
-    if cpi_data is not None:
-        cpi_yoy = cpi_data.pct_change(periods=12) * 100
-        fig = create_macro_chart(cpi_yoy, 'CPIAUCSL', "미국 소비자 물가 지수 (YoY)", '#ef553b', target_line=2.0)
-        st.plotly_chart(fig, use_container_width=True)
-        
-        last_cpi = cpi_yoy['CPIAUCSL'].iloc[-1]
-        data_summary += f"- 미국 소비자 물가 지수(CPI, YoY): {last_cpi:.2f}%\n"
+if cpi_data is not None:
+    # 전년 대비 상승률(YoY) 계산
+    cpi_yoy = cpi_data.pct_change(periods=12) * 100
+    
+    # 차트 그리기
+    fig_cpi = create_macro_chart(cpi_yoy, 'CPIAUCSL', "미국 소비자 물가 지수 (YoY)", '#ef553b', target_line=2.0)
+    st.plotly_chart(fig_cpi, use_container_width=True)
+    
+    # 요약 데이터 누적
+    last_cpi = cpi_yoy['CPIAUCSL'].iloc[-1]
+    data_summary += f"- 미국 소비자 물가 지수(CPI, YoY): {last_cpi:.2f}%\n"
+else:
+    st.warning("CPI 데이터 로드 실패")
 
-with tab2:
-    unrate_data = get_macro_data("UNRATE")
-    if unrate_data is not None:
-        fig = create_macro_chart(unrate_data, 'UNRATE', "미국 실업률 (%)", '#ffa15a')
-        st.plotly_chart(fig, use_container_width=True)
-        
-        last_unrate = unrate_data['UNRATE'].iloc[-1]
-        data_summary += f"- 미국 실업률: {last_unrate:.2f}%\n"
+# 차트 간 구분선
+st.divider()
+
+# 2. 실업률 (Unemployment) 차트
+st.markdown("#### 🏭 고용지표 (실업률)")
+unrate_data = get_macro_data("UNRATE")
+
+if unrate_data is not None:
+    # 차트 그리기
+    fig_unrate = create_macro_chart(unrate_data, 'UNRATE', "미국 실업률 (%)", '#ffa15a')
+    st.plotly_chart(fig_unrate, use_container_width=True)
+    
+    # 요약 데이터 누적
+    last_unrate = unrate_data['UNRATE'].iloc[-1]
+    data_summary += f"- 미국 실업률: {last_unrate:.2f}%\n"
+else:
+    st.warning("실업률 데이터 로드 실패")
 
 # -----------------------------------------------------------------------------
 # 5. UI 구성: Section 3 - Gemini Prompt Generator
