@@ -169,14 +169,14 @@ metrics = {
     # [1열: 핵심 지표]
     "🇺🇸 미국 10년물 금리": {"ticker": "^TNX", "suffix": "%"},
     "🇰🇷 원/달러 환율": {"ticker": "KRW=X", "suffix": "원"},
-    "🇺🇸 S&P 500": {"ticker": "^GSPC", "suffix": ""},
+    "😨 VIX (공포지수)": {"ticker": "^VIX", "suffix": ""},
     "🇺🇸 나스닥 100": {"ticker": "^IXIC", "suffix": ""}, # 기술주 중심
     
     # [2열: 글로벌 & 리스크]
-    "🇰🇷 코스피 지수": {"ticker": "^KS11", "suffix": ""},
+    "🇺🇸 S&P 500": {"ticker": "^GSPC", "suffix": ""},    
     "🇯🇵 닛케이 225": {"ticker": "^N225", "suffix": ""},
     "🌏 신흥국 ETF (EEM)": {"ticker": "EEM", "suffix": ""}, # 신흥국 증시 대리 지표
-    "😨 VIX (공포지수)": {"ticker": "^VIX", "suffix": ""},
+    "🇰🇷 코스피 지수": {"ticker": "^KS11", "suffix": ""},    
 }
 
 # 딕셔너리를 리스트로 변환
@@ -198,7 +198,7 @@ for i in range(0, len(metrics_list), 4):
                 
                 if name == "😨 VIX (공포지수)":
                     daily_vol = current / 16
-                    delta_text = f"{delta:,.2f} (±{daily_vol:.2f}%)"
+                    delta_text = f"{delta:,.2f} (VIX/16 ±{daily_vol:.2f}%)"
                     data_summary += f"- {name}: {current:,.2f} -> [예상변동: ±{daily_vol:.2f}%]\n"
                 else:
                     data_summary += f"- {name}: {current:,.2f}{info['suffix']} (전일대비: {delta:+.2f})\n"
