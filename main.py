@@ -58,7 +58,7 @@ def get_daily_data(ticker, period="6mo"):
 
     # 나머지 일반 주식/환율 등은 기존대로 야후 파이낸스 사용
     try:
-        df = yf.download(ticker, period=period, progress=False)
+        df = yf.download(ticker, period=period, progress=False, auto_adjust=True)
         if df.empty:
             return None, None, None
         
@@ -164,48 +164,65 @@ def create_macro_chart(df, col_name, title, color, target_line=None):
 # -----------------------------------------------------------------------------
 st.subheader("실시간 시장 동향")
 
+# 8개 지표 정의 (순서대로 배치됩니다)
 metrics = {
+    # [1열: 핵심 지표]
     "🇺🇸 미국 10년물 금리": {"ticker": "^TNX", "suffix": "%"},
     "🇰🇷 원/달러 환율": {"ticker": "KRW=X", "suffix": "원"},
-    "🇺🇸 S&P 500 지수": {"ticker": "^GSPC", "suffix": ""},
+    "🇺🇸 S&P 500": {"ticker": "^GSPC", "suffix": ""},
+    "🇺🇸 나스닥 100": {"ticker": "^IXIC", "suffix": ""}, # 기술주 중심
+    
+    # [2열: 글로벌 & 리스크]
+    "🇰🇷 코스피 지수": {"ticker": "^KS11", "suffix": ""},
+    "🇯🇵 닛케이 225": {"ticker": "^N225", "suffix": ""},
+    "🌏 신흥국 ETF (EEM)": {"ticker": "EEM", "suffix": ""}, # 신흥국 증시 대리 지표
     "😨 VIX (공포지수)": {"ticker": "^VIX", "suffix": ""},
 }
 
-cols = st.columns(len(metrics))
+# 딕셔너리를 리스트로 변환
+metrics_list = list(metrics.items())
 data_summary = ""
 
-# Section 1 루프 전체 교체
-for col, (name, info) in zip(cols, metrics.items()):
-    with col:
-        current, delta, history = get_daily_data(info['ticker'])
-        
-        if current is not None:
-            # 1. Delta 텍스트 만들기
-            delta_text = f"{delta:,.2f}"
+# 4개씩 끊어서 두 줄(Row)로 표시하는 로직
+for i in range(0, len(metrics_list), 4):
+    row_metrics = metrics_list[i:i+4]
+    cols = st.columns(4) # 한 줄에 4개 컬럼 생성
+    
+    for col, (name, info) in zip(cols, row_metrics):
+        with col:
+            current, delta, history = get_daily_data(info['ticker'])
             
-            # 🌟 [핵심] VIX인 경우, Delta 텍스트 뒤에 정보를 합침
-            if name == "😨 VIX (공포지수)":
-                daily_vol = current / 16
-                delta_text = f"VIX/16 {delta:,.2f} (±{daily_vol:.2f}%)"
-                # 프롬프트 요약용
-                data_summary += f"- {name}: {current:,.2f} (Change: {delta:.2f}) -> [예상변동: ±{daily_vol:.2f}%]\n"
-            else:
-                data_summary += f"- {name}: {current:,.2f}{info['suffix']} (전일대비: {delta:+.2f})\n"
+            if current is not None:
+                # 1. Delta 텍스트 만들기 (VIX일 경우 예상 변동폭 추가)
+                delta_text = f"{delta:,.2f}"
+                
+                if name == "😨 VIX (공포지수)":
+                    daily_vol = current / 16
+                    delta_text = f"{delta:,.2f} (±{daily_vol:.2f}%)"
+                    data_summary += f"- {name}: {current:,.2f} -> [예상변동: ±{daily_vol:.2f}%]\n"
+                else:
+                    data_summary += f"- {name}: {current:,.2f}{info['suffix']} (전일대비: {delta:+.2f})\n"
 
-            # 2. Metric 표시 (합쳐진 delta_text 사용)
-            st.metric(
-                label=name,
-                value=f"{current:,.2f}{info['suffix']}",
-                delta=delta_text
-            )
-            
-            # 3. 차트 표시
-            line_color = '#ff4b4b' if delta > 0 else '#4b88ff'
-            fig = create_sparkline_chart(history.tail(90), color=line_color)
-            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-            
-        else:
-            st.warning("Data load failed")
+                # 2. 메트릭 표시
+                st.metric(
+                    label=name,
+                    value=f"{current:,.2f}{info['suffix']}",
+                    delta=delta_text
+                )
+                
+                # 3. 차트 표시
+                line_color = '#ff4b4b' if delta > 0 else '#4b88ff'
+                # VIX나 환율은 오르면 파란색(부정)으로 보고 싶다면 반대로 설정 가능하지만 통일성을 위해 유지
+                
+                fig = create_sparkline_chart(history.tail(90), color=line_color)
+                st.plotly_chart(fig, width='content', config={'displayModeBar': False})
+                
+            else:
+                st.warning(f"{name} Load Fail")
+    
+    # 줄바꿈 간격 (옵션)
+    if i == 0 :
+        st.markdown("---") 
 
 # -----------------------------------------------------------------------------
 # 4. UI 구성: Section 2 - Macro Health (Monthly)
